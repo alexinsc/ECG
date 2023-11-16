@@ -7,13 +7,16 @@
     #include <RtcDS1302.h> //Bibliothèque pour l'horloge RTC
 
 //Macros du capteur
-    define X 50 //Taille du tableau de moyenne de valeurs lues
+    #define X 50 //Taille du tableau de moyenne de valeurs lues
     #define Y 10 //Taille du tableau de valeurs de temps où les battements ont lieux
     #define SEUIL 1 //seuil de détection de battement
 
 //Macros de la clock
     #define SCREEN_WIDTH 128 //Largeur de l'écran (en pixels)
     #define SCREEN_HEIGHT 64 //Hauteur de l'écran (en pixels)
+
+//Macros des LED et du beeper
+    #define FALLING 2
 
 //Variables du capteur
 
@@ -48,31 +51,28 @@
         float moyenneMax = 0; //La valeur moyenne des pics de variation de flux sanguin
         float tempsMoyen = 0.0; //Le temps moyen entre deux battements captés
         double bpm = 0.0; //Les battements par minute
-    
+  
 //Variables de la clock
     Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1); //Définition de l'écran OLED
-    ThreeWire myWire(3,2,4); //Définition des broches de l'horloge RTC
+    ThreeWire myWire(8,7,9); //Définition des broches de l'horloge RTC
     RtcDS1302<ThreeWire> Rtc(myWire); //Définition de l'horloge RTC
 
-//Variables des LEDs
-    const int led_verte = 1 ; //définition de la broche 1 comme étant la led verte
-    const int led_jaune = 2 ; //définition de la broche 2 comme étant la led jaune
-    const int led_rouge = 3 ; //définition de la broche 3 comme étant la led rouge
-    const int pindetecteurdepoul = A0; //définition de la broche A0 comme étant le détecteur de pouls
-    int Pouls; //définition de la variable Pouls
+//Variables des LEDs et du beeper
+    const int beeperPin = 3; //Port du beeper
+    int pindetecteurdepouls = (int)bpm; //Port de lecture du pouls
+    int pouls = 0; //Fréquence cardiaque (en bpm)
+    float BATT_S = 0; //Délai entre chaque battement
+    const int boutonPin = 2; //Port de lecture du bouton
+    volatile bool etatProgramme = false; //Etat du beeper (activé ou non)
+    const int led_verte = 6 ; //Port de la LED verte
+    const int led_jaune = 5 ; //Port de la LED jaune
+    const int led_rouge = 4 ; //Port de la LED rouge
+    int frequence = 0; //Fréquence émise par le beeper (en hertz)
+    int nbreit = 0; //Durée d'activation du beeper (en millisecondes)
+    int periodeMicros = 0; //Correspond à 1/"frequence" (en microsecondes) 
+    int demiPeriode = 0; //Correspond à "frequence"/2 (en microsecondes)
 
-//Variables du beeper
-    const int beeperPin = 4; //Pin beeper
-    const int pindetecteurdepoul = A0; //Pin du détecteur de pouls
-    float Pouls; //Variable de la valeur du pouls
-    float BATT_S; //Variable de la valeur de la battement par seconde
-    const int boutonPin = 2; //Pin du bouton
-    volatile bool etatProgramme = false; //Variable de l'état du programme
-    int etatBouton = 0; //Variable de l'état du bouton
-    int frequence = 0; //variable de la fréquence émise par le beeper (en hertz)
-    int periodeMicros = 0; //Correspond à 1/"frequence" (en microsecondes)
-    int DemiPeriode = 0; //Correspond à "frequence"/2 (en microsecondes)
-    int duree = 0; //Variable de durée d'activation du beeper (en millisecondes)
+
 
 void setup() {
     //Setup du capteur
@@ -82,32 +82,29 @@ void setup() {
     //Setup de la clock
         Serial.begin(9600); //Initialisation de la communication série et taux de raffraichissement
         display.begin(SSD1306_SWITCHCAPVCC, 0x3C); //Initialisation de l'écran OLED
-        display.setTextSize(2); //Définition de la taille du texte
+        display.setTextSize(1); //Définition de la taille du texte
         display.setTextColor(WHITE); //Définition de la couleur du texte
         Rtc.Begin(); //Initialisation de l'horloge RTC
-    
-    //Setup des LED
-        pinMode(pindetecteurdepoul,INPUT); //définition de la broche A0 comme étant une entrée
-        pinMode(led_verte,OUTPUT); //définition de la broche 1 comme étant une sortie
-        pinMode(led_jaune,OUTPUT); //définition de la broche 2 comme étant une sortie
-        pinMode(led_rouge,OUTPUT); //définition de la broche 3 comme étant une sortie
-    
-    //Setup du beeper
-        pinMode(beeperPin, OUTPUT); //Définition de la pin beeper en sortie
-        pinMode(pindetecteurdepoul,INPUT); //Définition de la pin du détecteur de pouls en entrée
-        pinMode(boutonPin,INPUT); //Définition de la pin du bouton en entrée
-        attachInterrupt(digitalPinToInterrupt(boutonPin),gestionnaireInterrupt, FALLING); //Définition de l'interruption du bouton
+
+    //Setup des LED et du beeper
+        pinMode(beeperPin, OUTPUT);
+        pinMode(pindetecteurdepouls,INPUT);
+        pinMode(boutonPin,INPUT);
+        attachInterrupt(digitalPinToInterrupt(boutonPin), detachInterrupt, FALLING);
+        pinMode(led_verte,OUTPUT);
+        pinMode(led_jaune,OUTPUT);
+        pinMode(led_rouge,OUTPUT);
 }
 
 //Fonctions interruption beeper
     void gestionnaireInterrupt() {
         // Bascule l'état du programme lorsque l'interruption est déclenchée
-        etatProgramme = !etatProgramme;
+            etatProgramme = !etatProgramme;
 
         // Si le programme devient inactif, arrêter la tonalité
-        if(!etatProgramme) {
-            digitalWrite(beeperPin, LOW);
-        }
+            if (!etatProgramme) {
+                digitalWrite(beeperPin, LOW);
+            }
     }
 
 void loop() {
@@ -195,107 +192,103 @@ void loop() {
         display.print(":");
         display.print(now.Minute()); //Affichage des minutes
         display.print(":");
-        display.print(now.Second()); //Affichage des secondes
+        display.println(now.Second()); //Affichage des secondes
+    
+    //Affichage du bpm sur l'écran OLED
+        display.print("BPM: ");
+        display.println(bpm); //Affichage du bpm    
         display.display(); //Affichage de l'écran OLED
 
-//Code des LED
 
-    //lecture de la valeur du détecteur de pouls
-        Pouls = analogRead(pindetecteurdepoul);
+//Code des LED et du beeper
 
-    //si la valeur du détecteur de pouls est comprise entre 100 et 170
-        if(Pouls>100 && Pouls<=160) { 
-            digitalWrite(led_rouge,HIGH); //la led rouge s'allume
-            digitalWrite(led_jaune,LOW); //la led jaune s'éteint
-            digitalWrite(led_verte,LOW); //la led verte s'éteint
-        }
+    pouls = (int)bpm;
+    BATT_S  = (60/pouls) * 1000 ;
 
-    //si la valeur du détecteur de pouls est comprise entre 30 et 50
-        else if(Pouls<50 && Pouls >= 30) {
-            digitalWrite(led_rouge,LOW); //la led rouge s'éteint
-            digitalWrite(led_jaune,HIGH); //la led jaune s'allume
-            digitalWrite(led_verte,LOW); // la led verte s'éteint
-        }
-
-    //si la valeur du détecteur de pouls est comprise entre 50 et 100
-        else if(Pouls>=50 && Pouls<=100) { 
-        digitalWrite(led_rouge,LOW); //la led rouge s'éteint
-        digitalWrite(led_jaune,LOW); //la led jaune s'éteint
-        digitalWrite(led_verte,HIGH); //la led verte s'allume
-        }
-
-    //si la valeur du détecteur de pouls n'est pas comprise entre 30 et 170
-        else { 
-            digitalWrite(led_rouge,LOW); //la led rouge s'éteint
-            digitalWrite(led_jaune,LOW); //la led jaune s'éteint
-            digitalWrite(led_verte,LOW); //la led verte s'éteint
-        }
-
-//Code du beeper
-
-    Pouls=analogRead(pindetecteurdepoul); //Lecture de la valeur du pouls
-    BATT_S  = (60/Pouls)*1000 ; //Calcul de la valeur de la battement par seconde
-    etatBouton = digitalRead(boutonPin); //Lecture de l'état du bouton
-
-    if(etatProgramme) {
-        if(Pouls>100) {
+    if (pouls>100 && pouls<=170){
+        digitalWrite(led_rouge,HIGH);
+        digitalWrite(led_jaune,LOW);
+        digitalWrite(led_verte,LOW);
+    }
+ 
+    if (pouls> 100){
+        while (etatProgramme == true){  
             // Génère une tonalité à 1200 Hz pendant 1 seconde
-                frequence = 1200; // Fréquence en Hertz
-                duree = 1000; // Durée en millisecondes
-
+                frequence = 1200;
+                nbreit = 1000;
+ 
             periodeMicros = (1000000 / frequence); // Période en microsecondes
-            DemiPeriode = periodeMicros / 2; // Demi-période en microsecondes
+            demiPeriode = periodeMicros / 2; // Demi-période en microsecondes
 
-            for(int k = 0; k < duree * 1000; k += periodeMicros) { //Boucle de la tonalité
+            for (int k = 0; k < nbreit * 1000 ; k += periodeMicros) {
                 // Cycle ON
-                    digitalWrite(beeperPin, HIGH); //Définition du beeper en état haut
-                    delayMicroseconds(DemiPeriode); //Demi-période en microsecondes
+                    digitalWrite(beeperPin, HIGH);
+                    delayMicroseconds(demiPeriode);
 
                 // Cycle OFF
-                    digitalWrite(beeperPin, LOW); //Définition du beeper en état bas
-                    delayMicroseconds(DemiPeriode); //Demi-période en microsecondes
+                    digitalWrite(beeperPin, LOW);
+                    delayMicroseconds(demiPeriode);
             }
-        delay(BATT_S); //Pause de la tonalité
+          delay(BATT_S);
         }
+    }
+    else if (pouls<50 && pouls >= 30 ){
+        digitalWrite(led_rouge,LOW);
+        digitalWrite(led_jaune,HIGH);
+        digitalWrite(led_verte,LOW);
+    }
 
-        else if (Pouls<50) { // Le "else if" et le "else" fonctionne de la même manière que le "if"
+    if (pouls<50){
+        while (etatProgramme== true){
             // Génère une tonalité à 300 Hz pendant 1 seconde
                 frequence = 300;
-                duree = 1000;
+                nbreit = 1000;
  
             periodeMicros = (1000000 / frequence); // Période en microsecondes
-            DemiPeriode = periodeMicros / 2; // Demi-période en microsecondes
+            demiPeriode = periodeMicros / 2; // Demi-période en microsecondes
 
-            for (int k = 0; k < duree  * 1000; k += periodeMicros) {
+            for (int k = 0; k < nbreit * 1000; k += periodeMicros) {
                 // Cycle ON
                     digitalWrite(beeperPin, HIGH);
-                    delayMicroseconds(DemiPeriode);
+                    delayMicroseconds(demiPeriode);
 
                 // Cycle OFF
                     digitalWrite(beeperPin, LOW);
-                    delayMicroseconds(DemiPeriode);
-            }
-        delay(BATT_S);
-        }
-
-        else  {
-            // Génère une tonalité à 600 Hz pendant 1 seconde
-                frequence = 600;
-                duree = 1000;
- 
-            periodeMicros = (1000000 / frequence); // Période en microsecondes
-            DemiPeriode = periodeMicros / 2; // Demi-période en microsecondes
-
-            for (int k = 0; k < duree * 1000; k += periodeMicros) {
-                // Cycle ON
-                    digitalWrite(beeperPin, HIGH);
-                    delayMicroseconds(DemiPeriode);
-
-                // Cycle OFF
-                    digitalWrite(beeperPin, LOW);
-                    delayMicroseconds(DemiPeriode);
+                    delayMicroseconds(demiPeriode);
             }
             delay(BATT_S);
         }
+    }
+
+    else if (pouls>=50 && pouls<=100) {
+        digitalWrite(led_rouge,LOW);
+        digitalWrite(led_jaune,LOW);
+        digitalWrite(led_verte,HIGH);
+        
+        while (etatProgramme == true) {  
+            // Génère une tonalité à 600 Hz pendant 1 seconde
+                frequence = 600;
+                nbreit = 1000;
+
+            periodeMicros = (1000000 / frequence); // Période en microsecondes
+            demiPeriode = (1000000 / frequence) / 2; // Demi-période en microsecondes
+
+            for (int k = 0; k < nbreit*1000 ; k += periodeMicros) {
+                // Cycle ON  
+                    digitalWrite(beeperPin, HIGH);
+                    delayMicroseconds(demiPeriode);
+
+                // Cycle OFF
+                    digitalWrite(beeperPin, LOW);
+                    delayMicroseconds(demiPeriode);
+            }
+            delay(BATT_S);
+        }
+    }
+
+    else {
+        digitalWrite(led_rouge,LOW);
+        digitalWrite(led_jaune,LOW);
+        digitalWrite(led_verte,LOW);
     }
 }
