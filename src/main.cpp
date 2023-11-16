@@ -15,9 +15,6 @@
     #define SCREEN_WIDTH 128 //Largeur de l'écran (en pixels)
     #define SCREEN_HEIGHT 64 //Hauteur de l'écran (en pixels)
 
-//Macros des LED et du beeper
-    #define FALLING 2
-
 //Variables du capteur
 
     //Définition du temps (exprimé en millisecondes)
@@ -59,8 +56,7 @@
 
 //Variables des LEDs et du beeper
     const int beeperPin = 3; //Port du beeper
-    int pindetecteurdepouls = (int)bpm; //Port de lecture du pouls
-    int pouls = 0; //Fréquence cardiaque (en bpm)
+    float pouls = 0; //Fréquence cardiaque (en bpm)
     float BATT_S = 0; //Délai entre chaque battement
     const int boutonPin = 2; //Port de lecture du bouton
     volatile bool etatProgramme = false; //Etat du beeper (activé ou non)
@@ -73,6 +69,16 @@
     int demiPeriode = 0; //Correspond à "frequence"/2 (en microsecondes)
 
 
+//Fonctions interruption beeper
+void gestionnaireInterrupt() {
+    // Bascule l'état du programme lorsque l'interruption est déclenchée
+        etatProgramme = !etatProgramme;
+
+    // Si le programme devient inactif, arrêter la tonalité
+        if (!etatProgramme) {
+            digitalWrite(beeperPin, LOW);
+        }
+}
 
 void setup() {
     //Setup du capteur
@@ -88,24 +94,13 @@ void setup() {
 
     //Setup des LED et du beeper
         pinMode(beeperPin, OUTPUT);
-        pinMode(pindetecteurdepouls,INPUT);
         pinMode(boutonPin,INPUT);
-        attachInterrupt(digitalPinToInterrupt(boutonPin), detachInterrupt, FALLING);
+        attachInterrupt(digitalPinToInterrupt(boutonPin), gestionnaireInterrupt, FALLING);
         pinMode(led_verte,OUTPUT);
         pinMode(led_jaune,OUTPUT);
         pinMode(led_rouge,OUTPUT);
 }
 
-//Fonctions interruption beeper
-    void gestionnaireInterrupt() {
-        // Bascule l'état du programme lorsque l'interruption est déclenchée
-            etatProgramme = !etatProgramme;
-
-        // Si le programme devient inactif, arrêter la tonalité
-            if (!etatProgramme) {
-                digitalWrite(beeperPin, LOW);
-            }
-    }
 
 void loop() {
 
@@ -202,7 +197,7 @@ void loop() {
 
 //Code des LED et du beeper
 
-    pouls = (int)bpm;
+    pouls = bpm;
     BATT_S  = (60/pouls) * 1000 ;
 
     if (pouls>100 && pouls<=170){
