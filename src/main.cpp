@@ -85,7 +85,7 @@ void setup() {
         pinMode(capteur,INPUT); //Paramétrage du port de lecture du capteur en entrée
         Serial.begin(9600); //Fréquence de l'information en bits/s
 
-    //Setup de la clock
+    //Setup de la clock et de l'écran OLED
         Serial.begin(9600); //Initialisation de la communication série et taux de raffraichissement
         display.begin(SSD1306_SWITCHCAPVCC, 0x3C); //Initialisation de l'écran OLED
         display.setTextSize(1); //Définition de la taille du texte
@@ -173,7 +173,7 @@ void loop() {
     display.clearDisplay(); //Effacement de l'écran OLED
     display.setCursor(0,1);
 
-    //Affichage de la date sur l'écrna OLED
+    //Affichage de la date sur l'écran OLED
         display.println("Date: ");
         display.print(now.Day()); //Affichage du jour
         display.print("/");
